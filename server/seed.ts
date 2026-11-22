@@ -1,13 +1,12 @@
 // Datos ficticios para pruebas y capacitación. Solo se cargan en la base de pruebas (APP_ENV=test).
-import type { PGlite } from '@electric-sql/pglite';
-import { one } from './db.ts';
+import { one, type Db } from './db.ts';
 import { hashSecret, newToken } from './core.ts';
 import { applyTemplate, TEMPLATES } from './templates.ts';
 
 export const TEST_PASSWORD = 'prueba1234';
 export const TEST_PIN = '1234';
 
-export async function seed(db: PGlite) {
+export async function seed(db: Db) {
   const pw = await hashSecret(TEST_PASSWORD);
   const pin = await hashSecret(TEST_PIN);
   const user = async (email: string, name: string, admin = false) =>

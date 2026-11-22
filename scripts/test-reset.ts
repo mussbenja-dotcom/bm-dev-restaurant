@@ -3,6 +3,7 @@ import { rmSync } from 'node:fs';
 import { basename } from 'node:path';
 process.env.APP_ENV ??= 'test';
 const { config } = await import('../server/config.ts');
+if (process.env.DATABASE_URL) { console.error('Rechazado: este comando es para la base embebida y DATABASE_URL está definida. Con Neon, usá las copias e historial del propio Neon.'); process.exit(1); }
 if (config.env !== 'test' || !/test/i.test(basename(config.dataDir))) {
   console.error(`Rechazado: este comando solo reinicia la base de pruebas (APP_ENV=test, DATA_DIR con "test"). Actual: ${config.env} ${config.dataDir}`);
   process.exit(1);

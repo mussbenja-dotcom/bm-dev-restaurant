@@ -1,9 +1,8 @@
 import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { EventEmitter } from 'node:events';
-import type { PGlite } from '@electric-sql/pglite';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { all, one, type Q, type Row } from './db.ts';
+import { all, one, type Db, type Q, type Row } from './db.ts';
 
 const scrypt = promisify(scryptCb) as (p: string, s: Buffer, len: number) => Promise<Buffer>;
 
@@ -15,7 +14,7 @@ export const conflict = (msg: string, extra?: Record<string, unknown>) => new Ht
 export const forbidden = () => new HttpError(403, 'No tenés permiso para esta acción');
 export const notFound = () => new HttpError(404, 'No encontrado');
 
-export type Ctx = { db: PGlite; bus: EventEmitter; uploadsDir: string; publicUrl: string; env: string };
+export type Ctx = { db: Db; bus: EventEmitter; uploadsDir: string; publicUrl: string; env: string };
 
 export const ROLES = ['owner', 'manager', 'waiter', 'all_tables', 'kitchen', 'bar', 'pass', 'cashier', 'rider', 'reservations', 'stock'] as const;
 export type Role = (typeof ROLES)[number];

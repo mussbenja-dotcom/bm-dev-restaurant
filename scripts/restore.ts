@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 const src = process.argv[2];
 if (!src || !existsSync(join(src, 'pgdata.tar.gz'))) { console.error('Uso: npm run restore -- <carpeta de copia con pgdata.tar.gz>'); process.exit(1); }
 const { config } = await import('../server/config.ts');
+if (process.env.DATABASE_URL) { console.error('Rechazado: este comando es para la base embebida y DATABASE_URL está definida. Con Neon, usá las copias e historial del propio Neon.'); process.exit(1); }
 const { PGlite } = await import('@electric-sql/pglite');
 let moved: string | null = null;
 if (existsSync(config.dataDir)) {

@@ -1,0 +1,27 @@
+# Render (plan Free) + PostgreSQL de Neon. Ver docs/INSTALACION.md → «Render Free con Neon».
+# Los valores secretos (DATABASE_URL, SUPERADMIN_*) se cargan en el panel de Render: acá solo se declaran.
+services:
+  - type: web
+    name: bm-dev-restaurant
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: APP_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: saltos:1
+      - key: DATA_DIR
+        value: ./data/prod
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPERADMIN_EMAIL
+        sync: false
+      - key: SUPERADMIN_NAME
+        sync: false
+      - key: SUPERADMIN_PASSWORD
+        sync: false

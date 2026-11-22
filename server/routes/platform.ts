@@ -1,8 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import type { PGlite } from '@electric-sql/pglite';
-import { all, one, type Q } from '../db.ts';
+import { all, one, type Db, type Q } from '../db.ts';
 import { audit, auth, bad, conflict, createSession, forbidden, hashSecret, HttpError, kick, newToken, notFound, reqInt, reqStr, sha256, windowLimiter, type Ctx } from '../core.ts';
 import { createRestaurant, setSid, validEmail, validPassword } from './auth.ts';
 
@@ -25,7 +24,7 @@ export async function issueLink(q: Q, kind: 'activate' | 'invite', userId: numbe
  * Crea o promueve la cuenta de Superadmin. Nunca cambia una contraseña existente.
  * Al arrancar con SUPERADMIN_EMAIL (fromBoot) solo crea: promover o emitir otro enlace queda para el comando, así un reinicio no deshace una degradación.
  */
-export async function ensureSuperadmin(db: PGlite, o: { email: string; name?: string; password?: string; fromBoot?: boolean }, publicUrl: string) {
+export async function ensureSuperadmin(db: Db, o: { email: string; name?: string; password?: string; fromBoot?: boolean }, publicUrl: string) {
   const email = validEmail(o.email);
   const hash = o.password ? await hashSecret(validPassword(o.password)) : '';
   return db.transaction(async (tx) => {

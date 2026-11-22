@@ -1,16 +1,18 @@
 import { config } from './config.ts';
-import { openDb } from './db.ts';
+import { connectDb } from './db.ts';
 import { buildApp } from './app.ts';
 import { initSetupCode } from './routes/auth.ts';
 import { ensureSuperadmin } from './routes/platform.ts';
 import { isLocalUrl } from '../shared/qr.ts';
 
-const db = await openDb(config.dataDir);
+// Con DATABASE_URL, si la conexión falla se corta acá: nunca se arranca en silencio con una base local vacía.
+const db = await connectDb(config.dataDir).catch((e) => { console.error(process.env.DATABASE_URL ? `\n  ${e.message}\n` : e); process.exit(1); });
 const { app, ctx } = await buildApp({ db, dataDir: config.dataDir, publicUrl: config.publicUrl, env: config.env, webDist: config.webDist, https: config.https });
 await app.listen({ port: config.port, host: config.host });
 
 console.log(`\nBM Dev Restaurant · entorno ${config.env}`);
-console.log(`  Datos:      ${config.dataDir}`);
+console.log(`  Base:       ${process.env.DATABASE_URL ? 'PostgreSQL externo (DATABASE_URL)' : `embebida en ${config.dataDir}`}`);
+console.log(`  Fotos:      ${config.dataDir}`);
 console.log(`  Local:      ${config.https ? 'https' : 'http'}://localhost:${config.port}`);
 console.log(`  En la red:  ${config.publicUrl}`);
 // Una dirección https sin certificado propio implica un proxy delante: sin TRUST_PROXY, los límites por IP ven a todos como el proxy.
@@ -27,5 +29,5 @@ if (process.env.SUPERADMIN_EMAIL) {
 const code = await initSetupCode(ctx);
 if (code) console.log(`\n  Instalación nueva. Abrí ${config.publicUrl}/alta y usá este código de un solo uso: ${code}\n`);
 
-// Cierre ordenado: PGlite debe cerrar para dejar la base consistente en disco.
+// Cierre ordenado: PGlite debe cerrar para dejar la base consistente en disco (con DATABASE_URL, cierra la conexión).
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, async () => { await app.close(); await db.close(); process.exit(0); });

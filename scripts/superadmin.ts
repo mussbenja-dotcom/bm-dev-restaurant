@@ -1,6 +1,7 @@
 export {};
 // Cuenta de Superadmin: npm run superadmin -- <email> "<nombre>"
-// Con el servidor detenido (la base es de un solo proceso). La contraseña nunca va en la línea de comandos:
+// Base embebida: con el servidor detenido (un solo proceso). Con DATABASE_URL (Neon) puede correr desde tu computadora con el servidor andando.
+// La contraseña nunca va en la línea de comandos:
 // - si SUPERADMIN_PASSWORD está definida en el entorno, se usa;
 // - si no, se imprime un enlace de activación de un solo uso (24 h) para definirla desde el navegador.
 // Si la cuenta ya existe, la pasa a Superadmin sin tocar su contraseña.
@@ -8,15 +9,15 @@ export {};
 const [email, name] = process.argv.slice(2);
 if (!email) { console.error('Uso: npm run superadmin -- <email> "<nombre>"'); process.exit(1); }
 const { config } = await import('../server/config.ts');
-// La base admite un solo proceso: si el servidor responde en este puerto, no se abre.
+// La base embebida admite un solo proceso: si el servidor responde en este puerto, no se abre. Con DATABASE_URL no hace falta detenerlo.
 // shortcut: solo detecta un servidor en config.port de esta máquina; con otro PORT/host apagalo a mano.
-if (await fetch(`http://127.0.0.1:${config.port}/api/health`, { signal: AbortSignal.timeout(1500) }).then(() => true, () => false)) {
+if (!process.env.DATABASE_URL && await fetch(`http://127.0.0.1:${config.port}/api/health`, { signal: AbortSignal.timeout(1500) }).then(() => true, () => false)) {
   console.error(`El servidor está corriendo en el puerto ${config.port}. Detenelo y volvé a ejecutar el comando.`);
   process.exit(1);
 }
-const { openDb } = await import('../server/db.ts');
+const { connectDb } = await import('../server/db.ts');
 const { ensureSuperadmin } = await import('../server/routes/platform.ts');
-const db = await openDb(config.dataDir);
+const db = await connectDb(config.dataDir).catch((e) => { console.error(e.message); process.exit(1); });
 try {
   const r = await ensureSuperadmin(db, { email, name, password: process.env.SUPERADMIN_PASSWORD }, config.publicUrl);
   console.log({ created: `Cuenta de Superadmin creada: ${r.email}`, promoted: `${r.email} ahora es Superadmin (su contraseña no cambió).`, existing: `${r.email} ya era Superadmin.` }[r.state]);

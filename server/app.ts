@@ -5,7 +5,7 @@ import fstatic from '@fastify/static';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { PGlite } from '@electric-sql/pglite';
+import type { Db } from './db.ts';
 import { HttpError, loadAuth, onPinFail, type Ctx } from './core.ts';
 import authRoutes, { purgeLoginAttempts } from './routes/auth.ts';
 import configRoutes from './routes/config.ts';
@@ -18,7 +18,18 @@ import brandRoutes from './routes/brand.ts';
 import qrRoutes from './routes/qr.ts';
 import platformRoutes from './routes/platform.ts';
 
-export type AppOpts = { db: PGlite; dataDir: string; publicUrl: string; env: string; webDist?: string; https?: { key: Buffer; cert: Buffer } };
+export type AppOpts = { db: Db; dataDir: string; publicUrl: string; env: string; webDist?: string; https?: { key: Buffer; cert: Buffer } };
+
+/**
+ * TRUST_PROXY: vacío = sin proxy; "1" = proxy en el mismo equipo; "saltos:N" = confiar en los últimos N proxies
+ * (Render: "saltos:1", toma la IP que agrega su balanceador y no la que pueda inventar el cliente); otro valor = IPs o redes del proxy.
+ */
+export function trustProxy(v: string | undefined): false | string | number {
+  if (!v) return false;
+  if (v === '1') return 'loopback';
+  const hops = v.match(/^saltos:(\d+)$/);
+  return hops ? Number(hops[1]) : v;
+}
 
 export async function buildApp(o: AppOpts): Promise<{ app: FastifyInstance; ctx: Ctx }> {
   const uploadsDir = join(o.dataDir, 'uploads');
@@ -27,7 +38,7 @@ export async function buildApp(o: AppOpts): Promise<{ app: FastifyInstance; ctx:
   bus.setMaxListeners(0);
   const ctx: Ctx = { db: o.db, bus, uploadsDir, publicUrl: o.publicUrl, env: o.env };
 
-  const app = Fastify({ logger: o.env === 'test' ? false : { level: 'warn' }, bodyLimit: 2_000_000, trustProxy: !process.env.TRUST_PROXY ? false : process.env.TRUST_PROXY === '1' ? 'loopback' : process.env.TRUST_PROXY, https: o.https ?? null } as any) as unknown as FastifyInstance;
+  const app = Fastify({ logger: o.env === 'test' ? false : { level: 'warn' }, bodyLimit: 2_000_000, trustProxy: trustProxy(process.env.TRUST_PROXY), https: o.https ?? null } as any) as unknown as FastifyInstance;
   await app.register(cookie);
   await app.register(multipart, { limits: { fileSize: 15_000_000, files: 1 } });
 
@@ -50,7 +61,7 @@ export async function buildApp(o: AppOpts): Promise<{ app: FastifyInstance; ctx:
     return reply.status(500).send({ error: 'Error interno. Reintentá; si persiste avisá a soporte.' });
   });
 
-  // Sin await: PGlite ejecuta esta escritura cuando termina (y se revierte) la transacción que pidió el PIN.
+  // Sin await: la base ejecuta esta escritura cuando termina (y se revierte) la transacción que pidió el PIN (una sola conexión, en fila).
   onPinFail((rid, uid, locked) => { o.db.query(`INSERT INTO audit_log (restaurant_id, user_id, action, entity, entity_id, data) VALUES ($1,$2,'pin.fail','user',$3,$4)`, [rid, uid, String(uid), JSON.stringify({ locked })]).catch((e) => app.log.error(e, 'no se pudo auditar el PIN fallido')); });
   const c = { ctx };
   await app.register(authRoutes, c);
