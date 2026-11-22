@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "react",
+    "react-hooks",
+    "jsx-a11y",
+    "import"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    "jsx-a11y/alt-text": "error",
+    "jsx-a11y/label-has-associated-control": "off",
+    "typescript/no-explicit-any": "off",
+    "react/react-in-jsx-scope": "off",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/no-autofocus": "off",
+    "eslint/no-shadow": "off",
+    "import/no-unassigned-import": "off",
+    "react/purity": "off"
+  },
+  "ignorePatterns": [
+    "dist/**",
+    "data/**",
+    "backups/**",
+    "node_modules/**",
+    "playwright-report/**",
+    "test-results/**"
+  ]
+}

@@ -1,0 +1,1 @@
+{ "name": "BM Dev Restaurant", "short_name": "BM Restaurant", "start_url": "/app", "display": "standalone", "background_color": "#f4f3ef", "theme_color": "#1f4d3a", "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }] }

@@ -1,0 +1,60 @@
+{
+  "name": "bm-dev-restaurant",
+  "version": "0.1.0",
+  "description": "BM Dev Restaurant · sistema gastronómico local (carta, salón, cocina, caja, pedidos)",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "tsx server/index.ts",
+    "start:test": "cross-env APP_ENV=test tsx server/index.ts",
+    "start:local": "cross-env APP_ENV=test DATA_DIR=./data/local PORT=4100 tsx server/index.ts",
+    "test:reset": "tsx scripts/test-reset.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "backup": "tsx scripts/backup.ts",
+    "restore": "tsx scripts/restore.ts",
+    "reset-password": "tsx scripts/reset-password.ts",
+    "superadmin": "tsx scripts/superadmin.ts",
+    "cert": "bash scripts/cert.sh",
+    "lint": "oxlint --deny-warnings"
+  },
+  "author": "BM Dev",
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.17",
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/multipart": "^10.1.9",
+    "@fastify/static": "^10.1.12",
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
+    "fastify": "^5.12.8",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.6",
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "cross-env": "^10.1.0",
+    "oxlint": "^1.94.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  }
+}
