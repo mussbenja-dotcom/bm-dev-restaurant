@@ -123,16 +123,26 @@ const ToastCtx = createContext<(text: string, error?: boolean) => void>(() => {}
 export const useToast = () => useContext(ToastCtx);
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([]);
-  const push = useCallback((text: string, error = false) => {
-    const id = Date.now() + Math.random();
-    setItems((x) => [...x, { id, text, error }]);
-    setTimeout(() => setItems((x) => x.filter((t) => t.id !== id)), error ? 7000 : 3500);
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  const dismiss = useCallback((id: number) => {
+    clearTimeout(timers.current.get(id)); timers.current.delete(id);
+    setItems((x) => x.filter((t) => t.id !== id));
   }, []);
+  const byText = useRef(new Map<string, number>());
+  const push = useCallback((text: string, error = false) => {
+    const id = Date.now() + Math.random(), k = `${error}|${text}`;
+    // El mismo aviso repetido no se apila: reemplaza al anterior y vuelve a contar desde cero.
+    const old = byText.current.get(k);
+    if (old !== undefined) dismiss(old);
+    byText.current.set(k, id);
+    setItems((x) => [...x, { id, text, error }]);
+    timers.current.set(id, setTimeout(() => { dismiss(id); if (byText.current.get(k) === id) byText.current.delete(k); }, error ? 7000 : 4000));
+  }, [dismiss]);
   return (
     <ToastCtx.Provider value={push}>
       {children}
       <div className="toast-area" role="status" aria-live="polite">
-        {items.map((t) => <div key={t.id} className={`toast ${t.error ? 'error' : ''}`}>{t.text}</div>)}
+        {items.map((t) => <div key={t.id} className={`toast ${t.error ? 'error' : ''}`}><span>{t.text}</span><button type="button" className="toast-x" onClick={() => dismiss(t.id)} aria-label="Cerrar aviso">×</button></div>)}
       </div>
     </ToastCtx.Provider>
   );

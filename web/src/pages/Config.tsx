@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { api, ars, dateAR, hhmm, useLoad, useMe, useToast } from '../lib.tsx';
-import { Loading, Modal, Money } from '../ui.tsx';
+import { ErrorBox, Loading, Modal, Money } from '../ui.tsx';
 import { parseArs } from '../../../shared/money.ts';
 import QrCodes, { tablePoster, tablePosterFile } from './QrCodes.tsx';
 import { downloadPoster } from '../poster.ts';
@@ -153,27 +153,56 @@ function Team() {
   const toast = useToast();
   const t = useLoad(() => api('/api/team'));
   const [f, setF] = useState<any>(null);
-  const save = async () => { try { await api('/api/team', { body: f }); toast('Guardado'); setF(null); t.reload(); } catch (e: any) { toast(e.message, true); } };
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const [closing, setClosing] = useState<number | null>(null);
+  const isOwner = me!.roles.includes('owner');
+  const edit = (x: any) => { setErr(''); setF(x); };
+  // El formulario solo se cierra si el servidor confirmó; si falla, lo escrito queda para reintentar.
+  const save = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (saving) return;
+    setSaving(true); setErr('');
+    try { await api('/api/team', { body: f }); setF(null); toast('Guardado'); t.reload(); }
+    catch (x: any) { setErr(x.message); }
+    finally { setSaving(false); }
+  };
   const reset = async (u: any) => { const p = prompt(`Nueva contraseña para ${u.name} (8+ caracteres):`); if (!p) return; try { await api(`/api/team/${u.id}/reset-password`, { body: { password: p } }); toast('Contraseña restablecida y sesiones cerradas'); } catch (e: any) { toast(e.message, true); } };
+  // Desconecta a la persona en este local; su cuenta, roles y estado no cambian.
+  const revoke = async (u: any) => {
+    if (closing !== null) return;
+    setClosing(u.id);
+    try { await api(`/api/team/${u.id}/revoke-sessions`, { body: {} }); toast('Sesiones cerradas'); }
+    catch (x: any) { toast(`No se pudieron cerrar las sesiones de ${u.name}: ${x.message}. Probá de nuevo.`, true); }
+    finally { setClosing(null); }
+  };
+  if (t.error) return <ErrorBox error={t.error} retry={t.reload} />;
   if (!t.data) return <Loading />;
-  const roles = Object.keys(ROLE_LABEL).filter((r) => r !== 'owner' || me!.roles.includes('owner'));
+  const roles = Object.keys(ROLE_LABEL).filter((r) => r !== 'owner' || isOwner);
+  const isNew = f && !f.id;
   return (
     <div className="stack">
-      <button className="primary" style={{ alignSelf: 'start' }} onClick={() => setF({ email: '', name: '', password: '', roles: ['waiter'], pin: '', active: true })}>+ Agregar persona</button>
+      <button className="primary" style={{ alignSelf: 'start' }} onClick={() => edit({ email: '', name: '', password: '', roles: ['waiter'], pin: '', active: true })}>+ Agregar persona</button>
       <div className="card table-wrap"><table><thead><tr><th>Persona</th><th>Roles</th><th>Estado</th><th><span className="visually-hidden">Acciones</span></th></tr></thead>
-        <tbody>{t.data.map((u: any) => <tr key={u.id}><td><strong>{u.name}</strong><div className="small muted">{u.email}</div></td><td>{u.roles.map((r: string) => ROLE_LABEL[r] ?? r).join(', ')}{u.has_pin && <span className="small muted"> · con PIN</span>}</td>
+        <tbody>{t.data.map((u: any) => <tr key={u.id} aria-busy={closing === u.id || undefined}><td><strong>{u.name}</strong><div className="small muted">{u.email}</div></td><td>{u.roles.map((r: string) => ROLE_LABEL[r] ?? r).join(', ')}{u.has_pin && <span className="small muted"> · con PIN</span>}</td>
           <td>{u.active ? <span className="pill st-ok">Activo</span> : <span className="pill st-free">Baja</span>}</td>
-          <td className="row"><button className="small" onClick={() => setF({ email: u.email, name: u.name, roles: u.roles, pin: '', active: u.active })}>Editar</button><button className="small" onClick={() => reset(u)}>Restablecer clave</button><button className="small" onClick={async () => { await api(`/api/team/${u.id}/revoke-sessions`, { body: {} }); toast('Sesiones cerradas'); }}>Cerrar sesiones</button></td></tr>)}</tbody></table></div>
-      {f && <Modal title="Persona del equipo" open onClose={() => setF(null)} footer={<><button onClick={() => setF(null)}>Cancelar</button><button className="primary" onClick={save}>Guardar</button></>}>
-        <div className="stack">
-          <div className="field"><label htmlFor="te">Email (usuario)</label><input id="te" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
-          <div className="field"><label htmlFor="tn">Nombre</label><input id="tn" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-          {f.password !== undefined && <div className="field"><label htmlFor="tp">Contraseña inicial (si es nueva)</label><input id="tp" type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>}
+          <td className="row"><button className="small" onClick={() => edit({ id: u.id, email: u.email, name: u.name, password: '', roles: u.roles, pin: '', active: u.active })}>Editar</button><button className="small" onClick={() => reset(u)}>Restablecer clave</button>
+            <button className="small" disabled={closing !== null} onClick={() => revoke(u)}>{closing === u.id ? 'Cerrando…' : 'Cerrar sesiones'}</button></td></tr>)}</tbody></table></div>
+      {f && <Modal title={isNew ? 'Agregar persona' : 'Editar persona'} open onClose={() => setF(null)} backdropClose={false} busy={saving}
+        footer={<><button type="button" onClick={() => setF(null)} disabled={saving}>Cancelar</button><button type="submit" form="team-form" className="primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button></>}>
+        {/* autoComplete: es el alta de otra persona, no el ingreso de quien administra; el navegador no debe rellenar con sus credenciales guardadas. */}
+        <form id="team-form" className="stack" onSubmit={save} autoComplete="off">
+          <div className="field"><label htmlFor="tn">Nombre</label><input id="tn" name="staff-name" autoComplete="off" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></div>
+          <div className="field"><label htmlFor="te">Email (usuario)</label><input id="te" name="staff-email" type="email" autoComplete="off" readOnly={!isNew && !isOwner} aria-describedby={!isNew && !isOwner ? 'te-h' : undefined} value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />{!isNew && !isOwner && <p id="te-h" className="small muted">El usuario de ingreso solo lo cambia el dueño.</p>}</div>
+          {(isNew || (isOwner && f.id !== me!.user.id)) && <div className="field"><label htmlFor="tp">{isNew ? 'Contraseña inicial (8 caracteres o más)' : 'Nueva contraseña (opcional)'}</label>
+            <input id="tp" name="staff-new-password" type="password" autoComplete="new-password" minLength={8} required={isNew} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} aria-describedby={isNew ? undefined : 'tp-h'} />
+            {!isNew && <p id="tp-h" className="small muted">Dejala vacía para conservar la contraseña actual.</p>}</div>}
           <fieldset style={{ border: 0, padding: 0 }}><legend style={{ fontWeight: 700 }}>Roles (se pueden combinar)</legend>
             {roles.map((r) => <label key={r} className="check"><input type="checkbox" checked={f.roles.includes(r)} onChange={(e) => setF({ ...f, roles: e.target.checked ? [...f.roles, r] : f.roles.filter((x: string) => x !== r) })} /> {ROLE_LABEL[r]}</label>)}</fieldset>
-          <div className="field"><label htmlFor="tpin">PIN de autorización (encargados, 4–8 dígitos)</label><input id="tpin" inputMode="numeric" value={f.pin} onChange={(e) => setF({ ...f, pin: e.target.value.replace(/\D/g, '') })} /></div>
+          <div className="field"><label htmlFor="tpin">PIN de autorización (encargados, 4–8 dígitos)</label><input id="tpin" name="staff-pin" autoComplete="off" inputMode="numeric" value={f.pin} onChange={(e) => setF({ ...f, pin: e.target.value.replace(/\D/g, '') })} /></div>
           <label className="check"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Activo</label>
-        </div>
+          {err && <p className="field-error" role="alert">{err}</p>}
+        </form>
       </Modal>}
     </div>
   );

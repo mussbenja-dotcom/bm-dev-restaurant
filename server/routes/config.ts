@@ -275,8 +275,37 @@ const plugin: FastifyPluginAsync<{ ctx: Ctx }> = async (app, { ctx }) => {
     const pin = b.pin ? String(b.pin) : null;
     if (pin && !/^\d{4,8}$/.test(pin)) throw bad('El PIN tiene de 4 a 8 dígitos');
     const email = validEmail(b.email);
+    // Edición (con id): nombre, email y, opcionalmente, contraseña nueva. Vacía = se conserva la anterior.
+    // El email (usuario de ingreso) y la contraseña solo los cambia el dueño, igual que restablecer la clave: un encargado no puede dejar afuera a un compañero.
+    const ownerOnly = () => { if (!a.roles.includes('owner')) throw forbidden(); };
+    if (b.id && b.password) {
+      ownerOnly();
+      // La propia se cambia en «Mi contraseña», que pide la actual (una cookie robada no alcanza para quedarse con la cuenta).
+      if (Number(b.id) === a.userId) throw bad('Tu propia contraseña se cambia en «Mi contraseña».');
+    }
+    const newPassword = b.id && b.password ? await hashSecret(validPassword(b.password)) : null;
     const res = await db.transaction(async (tx) => {
-      let u = await one(tx, 'SELECT id, is_platform_admin FROM users WHERE email=$1', [email]);
+      if (b.id) {
+        const uid = reqInt(b.id, 'persona', 1);
+        const cur = await one(tx, 'SELECT u.name, u.email, u.is_platform_admin, m.roles FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.restaurant_id=$2', [uid, a.restaurantId]);
+        if (!cur) throw notFound();
+        if (cur.is_platform_admin || (cur.roles.includes('owner') && !a.roles.includes('owner'))) throw forbidden();
+        const name = reqStr(b.name, 'nombre', 80);
+        const changed = [name !== cur.name && 'name', email !== cur.email && 'email', newPassword && 'password'].filter(Boolean);
+        if (changed.length) {
+          if (email !== cur.email) ownerOnly();
+          // La cuenta es de la persona: solo se cambia si no trabaja en locales de otro dueño (misma regla que restablecer la clave).
+          if (uid !== a.userId && await one(tx, `SELECT 1 FROM memberships m WHERE m.user_id=$1 AND m.restaurant_id<>$3 AND NOT EXISTS (SELECT 1 FROM memberships o WHERE o.user_id=$2 AND o.restaurant_id=m.restaurant_id AND 'owner'=ANY(o.roles))`, [uid, a.userId, a.restaurantId]))
+            throw conflict('Esta persona trabaja también en otro local: su nombre, email o contraseña los cambia ella o BM Dev.');
+          if (email !== cur.email && await one(tx, 'SELECT 1 FROM users WHERE email=$1 AND id<>$2', [email, uid])) throw conflict('Ya hay otra cuenta con ese email.');
+          try { await tx.query('UPDATE users SET name=$1, email=$2, password_hash=coalesce($3, password_hash) WHERE id=$4', [name, email, newPassword, uid]); }
+          catch (e: any) { if (e?.code === '23505') throw conflict('Ya hay otra cuenta con ese email.'); throw e; }
+          if (newPassword) await tx.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [uid]);
+          await audit(tx, a.restaurantId, a.userId, 'team.account_update', 'user', uid, null, { changed, ...(email !== cur.email ? { email_before: cur.email, email_after: email } : {}) });
+          if (newPassword) await audit(tx, a.restaurantId, a.userId, 'team.password_reset', 'user', uid);
+        }
+      }
+      let u = b.id ? { id: reqInt(b.id, 'persona', 1), is_platform_admin: false } : await one(tx, 'SELECT id, is_platform_admin FROM users WHERE email=$1', [email]);
       // Una cuenta de plataforma nunca se vincula a un local (evita tomarla luego con el restablecimiento de clave).
       if (u?.is_platform_admin) throw forbidden();
       if (!u) u = await one(tx, 'INSERT INTO users (email, name, password_hash) VALUES ($1,$2,$3) RETURNING id', [email, reqStr(b.name, 'nombre', 80), await hashSecret(validPassword(b.password))]);

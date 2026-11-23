@@ -200,7 +200,11 @@ hr.sep { border: none; border-top: 1px solid var(--line); margin: var(--s4) 0; }
 .notice .ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--bg) 16%, transparent); }
 .toast-area { position: fixed; bottom: calc(76px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 100; display: grid; gap: var(--s2); width: min(92vw, 480px); }
 @media (min-width: 1024px) { .toast-area { bottom: var(--s5); } }
-.toast { padding: var(--s3) var(--s4); border-radius: var(--r3); background: var(--text); color: var(--bg); box-shadow: var(--shadow-2); font-weight: 600; animation: rise .22s var(--ease-out); }
+.toast { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s2) var(--s2) var(--s2) var(--s4); border-radius: var(--r3); background: var(--text); color: var(--bg); box-shadow: var(--shadow-2); font-weight: 600; animation: rise .22s var(--ease-out); }
+.toast-x { flex: none; min-width: 44px; min-height: 44px; padding: 0; border: 0; background: transparent; color: inherit; font-size: 1.5rem; line-height: 1; cursor: pointer; opacity: .8; }
+.toast-x:hover, .toast-x:focus-visible { opacity: 1; }
+/* Carga en curso: cursor de progreso en el área que espera (el indicador visible está en el texto del botón). */
+[aria-busy="true"], [aria-busy="true"] * { cursor: progress !important; }
 .toast.error { background: var(--bad); color: #fff; }
 @keyframes rise { from { transform: translateY(calc(var(--mv) * 8px)); opacity: 0; } }
 @keyframes drop { from { transform: translateY(calc(var(--mv) * -8px)); opacity: 0; } }

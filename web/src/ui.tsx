@@ -5,8 +5,14 @@ import { parseArs } from '../../shared/money.ts';
 
 export const Money = ({ c, className = '' }: { c: number; className?: string }) => <span className={`money ${className}`}>{ars(c)}</span>;
 
-export function Modal({ title, open, onClose, children, footer }: { title: string; open: boolean; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+/**
+ * Diálogo modal. Se cierra con «X», Escape o (si backdropClose) con un clic en el fondo.
+ * backdropClose={false} en formularios: un clic afuera no debe perder lo escrito.
+ */
+export function Modal({ title, open, onClose, children, footer, backdropClose = true, busy = false }: { title: string; open: boolean; onClose: () => void; children: ReactNode; footer?: ReactNode; backdropClose?: boolean; busy?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Un clic que empieza adentro (p. ej. seleccionar texto) y se suelta en el fondo también llega como clic al <dialog>: solo cuenta si empezó en el fondo.
+  const downOnBackdrop = useRef(false);
   const tid = useId(); // dos diálogos abiertos (plato sobre el pedido) no comparten título
   useEffect(() => {
     const d = ref.current;
@@ -16,9 +22,12 @@ export function Modal({ title, open, onClose, children, footer }: { title: strin
   }, [open]);
   return (
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- clic en el fondo = atajo de mouse; teclado: Esc nativo o botón Cerrar
-    <dialog ref={ref} onClose={onClose} aria-labelledby={tid} onClick={(e) => { if (e.target === ref.current) onClose(); }}>
+    <dialog ref={ref} onClose={() => { if (busy) ref.current?.showModal(); else onClose(); }} aria-labelledby={tid} aria-busy={busy || undefined}
+      onCancel={(e) => { if (busy) e.preventDefault(); }} // Escape no cierra mientras se guarda (si Chrome igual lo cierra, onClose lo reabre): si falla, lo escrito sigue ahí
+      onPointerDown={(e) => { downOnBackdrop.current = e.target === ref.current; }}
+      onClick={(e) => { if (backdropClose && downOnBackdrop.current && e.target === ref.current) onClose(); downOnBackdrop.current = false; }}>
       {open && <>
-        <div className="dlg-head"><h2 id={tid} style={{ margin: 0 }}>{title}</h2><button className="ghost icon-btn" onClick={onClose} aria-label="Cerrar"><Icon name="close" /></button></div>
+        <div className="dlg-head"><h2 id={tid} style={{ margin: 0 }}>{title}</h2><button className="ghost icon-btn" onClick={onClose} aria-label="Cerrar" disabled={busy}><Icon name="close" /></button></div>
         <div className="dlg-body">{children}</div>
         {footer && <div className="dlg-foot">{footer}</div>}
       </>}
