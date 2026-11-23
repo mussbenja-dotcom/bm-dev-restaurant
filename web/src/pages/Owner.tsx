@@ -109,14 +109,15 @@ export default function Owner() {
       )}
 
       <section aria-labelledby="h-exp" className="owner-exp">
-        <h2 id="h-exp" className="rule-title">Exportar planillas (CSV)</h2>
+        <h2 id="h-exp" className="rule-title">Exportar planillas (Excel)</h2>
         <div className="row">
-          <a className="btn small" href="/api/export/ventas">Ventas</a>
-          <a className="btn small" href="/api/export/cobros">Cobros</a>
-          <a className="btn small" href="/api/export/turnos">Turnos</a>
-          <a className="btn small" href="/api/export/auditoria">Auditoría</a>
+          <a className="btn small" href="/api/export/ventas.xlsx" download>Ventas</a>
+          <a className="btn small" href="/api/export/cobros.xlsx" download>Cobros</a>
+          <a className="btn small" href="/api/export/turnos.xlsx" download>Turnos</a>
+          <a className="btn small" href="/api/export/auditoria.xlsx" download>Auditoría</a>
           {d.data.lastClosed && <span className="small muted">Último cierre: diferencia <Money c={d.data.lastClosed.difference ?? 0} />. <Link to={`/app/caja/turno/${d.data.lastClosed.id}`}>Ver detalle</Link></span>}
         </div>
+        <p className="small muted">También en CSV: <a href="/api/export/ventas" download>ventas</a> · <a href="/api/export/cobros" download>cobros</a> · <a href="/api/export/turnos" download>turnos</a> · <a href="/api/export/auditoria" download>auditoría</a></p>
       </section>
     </main>
   );

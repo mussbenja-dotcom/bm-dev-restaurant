@@ -17,15 +17,7 @@ export async function shiftSummary(q: Q, rid: number, s: Row) {
   const sum = (k: string) => moves.filter((m) => m.kind === k).reduce((t, m) => t + m.amount_cents, 0);
   const cash = byMethod.find((m) => m.method === 'efectivo');
   const totals = { opening: s.opening_cents, cashPayments: cash?.neto ?? 0, cashTips: cash?.propinas ?? 0, ingresos: sum('ingreso'), retiros: sum('retiro'), gastos: sum('gasto') };
-  const sales = (await one(q, `SELECT coalesce(sum(unit_price_cents*qty) FILTER (WHERE status<>'void'),0) AS ventas, coalesce(sum(unit_price_cents*qty) FILTER (WHERE status='void'),0) AS anulado,
-      count(*) FILTER (WHERE status='void')::int AS anulaciones FROM order_lines WHERE restaurant_id=$1 AND created_at >= $2 AND created_at < $3`, [rid, s.opened_at, to]))!;
-  const fees = (await one(q, `SELECT coalesce(sum(fee_cents),0) AS envios FROM orders WHERE restaurant_id=$1 AND created_at >= $2 AND created_at < $3 AND status NOT IN ('rechazado','cancelado','solicitud','recibido')`, [rid, s.opened_at, to]))!;
-  const disc = await all(q, `SELECT kind, sum(amount_cents) AS total, count(*)::int AS n FROM discounts WHERE restaurant_id=$1 AND at >= $2 AND at < $3 GROUP BY kind`, [rid, s.opened_at, to]);
-  // Descuentos que quedaron sin efecto por el tope (se anuló lo descontado): se restan para que el turno muestre lo aplicado, igual que balance().
-  const capped = await all(q, `SELECT visit_id, sum(amount_cents)::bigint AS raw FROM discounts WHERE restaurant_id=$1 AND at >= $2 AND at < $3 AND visit_id IS NOT NULL GROUP BY visit_id`, [rid, s.opened_at, to]);
-  let excess = 0;
-  for (const c of capped) excess += Math.max(0, Number(c.raw) - (await balance(q, rid, { visitId: c.visit_id })).discounts);
-  if (excess) disc.push({ kind: 'tope', total: -excess, n: 0 });
+  const { sales, fees, disc } = await salesTotals(q, rid, s.opened_at, to);
   const openRows = await all(q, `SELECT v.id, (SELECT string_agg(t.number,'+') FROM visit_tables vt JOIN tables t ON t.id=vt.table_id WHERE vt.visit_id=v.id AND vt.released_at IS NULL) AS tables
       FROM visits v WHERE v.restaurant_id=$1 AND v.status='open'`, [rid]);
   const open = await Promise.all(openRows.map(async (v) => ({ ...v, due: (await balance(q, rid, { visitId: v.id })).due }) as Row));
@@ -38,6 +30,24 @@ export async function shiftSummary(q: Q, rid: number, s: Row) {
     counted: s.counted_cents, difference: s.counted_cents == null ? null : s.counted_cents - expected,
     openVisits: open.filter((v) => v.due !== 0 || v.tables),
   };
+}
+
+/** Pedidos cuyo envío no cuenta como venta. */
+export const FEE_EXCLUDED = "('rechazado','cancelado','solicitud','recibido')";
+/** Ventas de un período con el cálculo de caja: líneas no anuladas + envíos de pedidos aceptados; descuentos aplicados (descontado el tope). */
+export async function salesTotals(q: Q, rid: number, from: Date, to: Date) {
+  const sales = (await one(q, `SELECT coalesce(sum(unit_price_cents*qty) FILTER (WHERE status<>'void'),0) AS ventas, coalesce(sum(unit_price_cents*qty) FILTER (WHERE status='void'),0) AS anulado,
+      count(*) FILTER (WHERE status='void')::int AS anulaciones FROM order_lines WHERE restaurant_id=$1 AND created_at >= $2 AND created_at < $3`, [rid, from, to]))!;
+  const fees = (await one(q, `SELECT coalesce(sum(fee_cents),0) AS envios FROM orders WHERE restaurant_id=$1 AND created_at >= $2 AND created_at < $3 AND status NOT IN ${FEE_EXCLUDED}`, [rid, from, to]))!;
+  const disc = await all(q, `SELECT kind, sum(amount_cents) AS total, count(*)::int AS n FROM discounts WHERE restaurant_id=$1 AND at >= $2 AND at < $3 GROUP BY kind`, [rid, from, to]);
+  // Descuentos que quedaron sin efecto por el tope (se anuló lo descontado): se restan para que el turno muestre lo aplicado, igual que balance().
+  // Una sola consulta (no un balance() por cuenta): aplicado por cuenta = least(todos sus descuentos, subtotal no anulado).
+  const excess = Number((await one(q, `SELECT coalesce(sum(greatest(0, c.raw - least(d.total, coalesce(l.sub, 0)))), 0)::bigint AS n
+      FROM (SELECT visit_id, sum(amount_cents) AS raw FROM discounts WHERE restaurant_id=$1 AND at >= $2 AND at < $3 AND visit_id IS NOT NULL GROUP BY visit_id) c
+      CROSS JOIN LATERAL (SELECT sum(amount_cents) AS total FROM discounts WHERE restaurant_id=$1 AND visit_id=c.visit_id) d
+      CROSS JOIN LATERAL (SELECT sum(unit_price_cents * qty) AS sub FROM order_lines WHERE restaurant_id=$1 AND visit_id=c.visit_id AND status <> 'void') l`, [rid, from, to]))!.n);
+  if (excess) disc.push({ kind: 'tope', total: -excess, n: 0 });
+  return { sales, fees, disc };
 }
 
 /** Ticket interno (precuenta o X). Toma una foto del detalle: reimprimirlo muestra exactamente lo mismo. */
@@ -319,8 +329,17 @@ const plugin: FastifyPluginAsync<{ ctx: Ctx }> = async (app, { ctx }) => {
   app.get('/api/export/:kind', async (req: any, reply) => {
     const a = need(req);
     const rid = a.restaurantId;
-    const kind = String(req.params.kind).replace(/\.csv$/, '');
     const shift = req.query.shift ? reqInt(req.query.shift, 'turno', 1) : null;
+    // «ventas.xlsx»: planilla Excel con formato; sin extensión o «.csv»: el CSV de siempre.
+    const xk = String(req.params.kind).match(/^(\w+)\.xlsx$/)?.[1];
+    if (xk) {
+      const { XLSX_KINDS, xlsxReport } = await import('../exports.ts'); // carga diferida: exports.ts usa funciones de este archivo
+      if (!(XLSX_KINDS as readonly string[]).includes(xk)) throw notFound();
+      if (shift && !(await one(db, 'SELECT 1 FROM cash_shifts WHERE id=$1 AND restaurant_id=$2', [shift, rid]))) throw notFound();
+      const { file, name } = await xlsxReport(db, rid, xk as (typeof XLSX_KINDS)[number], shift);
+      return reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').header('content-disposition', `attachment; filename="${name}"`).send(file);
+    }
+    const kind = String(req.params.kind).replace(/\.csv$/, '');
     let rows: Row[];
     if (kind === 'cobros') rows = await all(db, `SELECT p.id, p.shift_id AS turno, p.created_at AS fecha, p.method AS medio, p.amount_cents/100.0 AS importe, p.tip_cents/100.0 AS propina, p.tendered_cents/100.0 AS recibido, p.change_cents/100.0 AS vuelto, p.payer AS pagador, p.visit_id AS visita, p.order_id AS pedido, p.reverses_id AS revierte, p.reason AS motivo, u.name AS cajero FROM payments p LEFT JOIN users u ON u.id=p.created_by WHERE p.restaurant_id=$1 AND ($2::int IS NULL OR p.shift_id=$2) ORDER BY p.id`, [rid, shift]);
     else if (kind === 'ventas') rows = await all(db, `SELECT l.id, l.created_at AS fecha, l.visit_id AS visita, l.order_id AS pedido, l.name AS plato, l.qty AS cantidad, l.unit_price_cents/100.0 AS precio_unitario, (l.unit_price_cents*l.qty)/100.0 AS total, l.status AS estado, l.void_reason AS motivo_anulacion, l.unit_cost_cents/100.0 AS costo_unitario FROM order_lines l WHERE l.restaurant_id=$1 ORDER BY l.id`, [rid]);
